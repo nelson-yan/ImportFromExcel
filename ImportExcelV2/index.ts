@@ -1,13 +1,10 @@
 import { IInputs, IOutputs } from "./generated/ManifestTypes";
-import "./js/jquery.js";
-import "./js/xlsx.full.min.js";
-//const XLSX = require('xlsx');
 import * as XLSX from 'xlsx';
-import * as $ from 'jquery';
 
 export class ImportExcelV2 implements ComponentFramework.StandardControl<IInputs, IOutputs> {
     private _excelUploadinput: HTMLInputElement;
     private _paragraphinput: HTMLLabelElement;
+    private _backloginput: HTMLLabelElement;
     private _notifyOutputChanged: () => void;
     private _container: HTMLDivElement;
 
@@ -46,10 +43,15 @@ export class ImportExcelV2 implements ComponentFramework.StandardControl<IInputs
         this._container.appendChild(this._excelUploadinput);
 
         this._paragraphinput = document.createElement("label");
-        this._paragraphinput.id = "jsonObject";
+        this._paragraphinput.id = "jsonOrder";
         this._paragraphinput.style.display = "none";
 
+        this._backloginput = document.createElement("label");
+        this._backloginput.id = "jsonBacklog";
+        this._backloginput.style.display = "none";
+
         this._container.appendChild(this._paragraphinput);
+        this._container.appendChild(this._backloginput);
         container.appendChild(this._container);
     }
 
@@ -64,27 +66,56 @@ export class ImportExcelV2 implements ComponentFramework.StandardControl<IInputs
 
 
     private excelupdated(event: Event): void {
-        $("#fileUploader").change(function (evt) {
-            var selectedFile = (<HTMLInputElement>document.getElementById('fileUploader')).files[0];
-            var reader = new FileReader();
-            reader.onload = function (event) {
-                var data = event.target.result;
-                var workbook = XLSX.read(data, {
-                    type: 'binary'
+        this._excelUploadinput.addEventListener('change', function(evt) {
+            let selectedFile = (<HTMLInputElement>document.getElementById('fileUploader')).files[0];
+            // 如果没有选择任何文件，清空jsonOrder并退出
+            if (!selectedFile) {
+                document.getElementById("jsonOrder").innerHTML = "";
+                document.getElementById("jsonBacklog").innerHTML = "";
+                return;
+            }
+
+            let reader = new FileReader();
+
+            reader.onload = function(event) {
+                let data = new Uint8Array(event.target.result as ArrayBuffer);
+                let workbook = XLSX.read(data, {
+                    type: 'array'
                 });
-
-                var XL_row_object: any = XLSX.utils.sheet_to_json(workbook.Sheets['Sheet1'],{ header: undefined });
+                let firstSheetName=workbook.SheetNames[0];
+                let XL_row_object: any = XLSX.utils.sheet_to_json(workbook.Sheets[firstSheetName],{ header: undefined });
+    
                 
-                //var json_object = JSON.stringify(XL_row_object);
+                //提取Backlog
+                interface RowData {
+                    ProductId: string;
+                    Backlog: number;
+                    MaterialId:string;
+                    CustomerId:string;
+                    [key: string]: any;
+                  }
 
+                const transformedBacklog = XL_row_object.map((row:RowData) => {
+                    return {
+                      ProductId: row.ProductId,
+                      Backlog: row.Backlog,
+                      MaterialId:row.MaterialId,
+                      CustomerId:row.CustomerId 
+                    };
+                  });
+                console.log(transformedBacklog);
+                let json_Backlog = JSON.stringify(transformedBacklog);
+                document.getElementById("jsonBacklog").innerHTML = json_Backlog;
+
+
+                //转换数据格式
                 const transformedData = [];
-                
                 // 循环遍历源数据的每一行 
                 for (const row of XL_row_object) {
                     // 循环遍历每个日期列
                     for (const dateColumn in row) {
                     // 排除ProductId列
-                    if (dateColumn !== "ProductId" && dateColumn !== "CustomerId" && dateColumn !== "MaterialId") {
+                    if (dateColumn !== "ProductId" && dateColumn !== "CustomerId" && dateColumn !== "MaterialId" && dateColumn !== "Backlog") {
                         // 将每个日期列的数据添加到转换后的数组中
                         transformedData.push({
                         ProductId: row.ProductId,
@@ -96,27 +127,29 @@ export class ImportExcelV2 implements ComponentFramework.StandardControl<IInputs
                     }
                     }
                 }
-                console.log(transformedData);
-                var json_object = JSON.stringify(transformedData);
-                document.getElementById("jsonObject").innerHTML = json_object;
+                //console.log(transformedData);
+                let json_object = JSON.stringify(transformedData);
+                document.getElementById("jsonOrder").innerHTML = json_object;
             };
-
-            reader.onerror = function (event) {
+    
+            reader.onerror = function(event) {
                 console.error("File could not be read! Code " + event.target.error.code);
             };
-
-            reader.readAsBinaryString(selectedFile);
+    
+            reader.readAsArrayBuffer(selectedFile);
+            //reader.readAsBinaryString(selectedFile);
         });
         this._notifyOutputChanged();
     }
-
+    
     /** 
      * It is called by the framework prior to a control receiving new data. 
      * @returns an object based on nomenclature defined in manifest, expecting object[s] for property marked as “bound” or “output”
      */
     public getOutputs(): IOutputs {
         return {
-            Output: document.getElementById("jsonObject").innerHTML,
+            Output: document.getElementById("jsonOrder").innerHTML,
+            Backlog:document.getElementById("jsonBacklog").innerHTML
         };
     }
 
